@@ -1,5 +1,7 @@
 // Generates a simple text-based test PDF for verification.
-const fs = require("fs");
+import { writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const lines = [
   "Employee Report 2026",
@@ -33,5 +35,10 @@ pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
 offsets.forEach((o) => (pdf += String(o).padStart(10, "0") + " 00000 n \n"));
 pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
 
-fs.writeFileSync("test-sample.pdf", pdf, "latin1");
-console.log("test-sample.pdf written,", pdf.length, "bytes");
+const outPath = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "test-sample.pdf"
+);
+writeFileSync(outPath, pdf, "latin1");
+console.log(`Wrote ${outPath} (${Buffer.byteLength(pdf, "latin1")} bytes)`);

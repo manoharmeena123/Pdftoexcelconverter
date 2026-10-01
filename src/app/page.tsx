@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-
-interface SheetData {
-  name: string;
-  rows: (string | number)[][];
-}
+import {
+  extractPdfData,
+  buildExcelWorkbook,
+  getOutputFileName,
+  type SheetData,
+} from "@/lib/pdfToExcel";
 
 interface ConversionResult {
   fileName: string;
@@ -13,7 +14,7 @@ interface ConversionResult {
   meta: { label: string; value: string }[];
   sheets: SheetData[];
   totalRows: number;
-  excelBase64: string;
+  excel: Uint8Array<ArrayBuffer>;
 }
 
 const MAX_PREVIEW_ROWS = 50;
@@ -43,15 +44,27 @@ export default function Home() {
     setError(null);
     setResult(null);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/convert", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Conversion failed.");
-      setResult(data as ConversionResult);
+      // Conversion runs entirely in the browser: no upload, no size limits,
+      // and the file never leaves this device.
+      const data = new Uint8Array(await file.arrayBuffer());
+      const extraction = await extractPdfData(data, file.name);
+      const excel = buildExcelWorkbook(extraction);
+      setResult({
+        fileName: file.name,
+        outputName: getOutputFileName(file.name),
+        meta: extraction.meta,
+        sheets: extraction.sheets,
+        totalRows: extraction.totalRows,
+        excel,
+      });
       setActiveSheet(0);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      console.error("PDF conversion error:", err);
+      setError(
+        err instanceof Error && /password|encrypt/i.test(err.message)
+          ? "The PDF is password-protected or encrypted. Please upload an unlocked PDF."
+          : "Failed to process the PDF file. Please make sure it is a valid, non-encrypted PDF."
+      );
     } finally {
       setLoading(false);
     }
@@ -59,8 +72,7 @@ export default function Home() {
 
   const downloadExcel = () => {
     if (!result) return;
-    const bytes = Uint8Array.from(atob(result.excelBase64), (c) => c.charCodeAt(0));
-    const blob = new Blob([bytes], {
+    const blob = new Blob([result.excel], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
     const url = URL.createObjectURL(blob);
@@ -198,7 +210,7 @@ export default function Home() {
             {/* Preview table */}
             {sheet && (
               <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow dark:border-zinc-800 dark:bg-zinc-900">
-                <div className="max-h-[420px] overflow-auto">
+                <div className="max-h-105 overflow-auto">
                   <table className="w-full border-collapse text-left text-sm">
                     <thead className="sticky top-0 bg-zinc-100 dark:bg-zinc-800">
                       <tr>
@@ -221,7 +233,7 @@ export default function Home() {
                           {row.map((cell, c) => (
                             <td
                               key={c}
-                              className="max-w-[420px] truncate border-b border-zinc-100 px-4 py-2 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
+                              className="max-w-105 truncate border-b border-zinc-100 px-4 py-2 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400"
                               title={String(cell)}
                             >
                               {String(cell)}
@@ -244,7 +256,9 @@ export default function Home() {
         )}
 
         <footer className="mt-14 text-center text-xs text-zinc-400 dark:text-zinc-600">
-          Works best with text-based PDFs. Scanned/image PDFs require OCR and are not supported.
+          Conversion happens in your browser — files are never uploaded to a server, and there is
+          no size limit. Works best with text-based PDFs; scanned/image PDFs require OCR and are
+          not supported.
         </footer>
       </div>
     </main>
